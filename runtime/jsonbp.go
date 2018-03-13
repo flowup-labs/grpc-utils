@@ -81,10 +81,9 @@ type Marshaler struct {
 	// proto.MessageType(string).
 	AnyResolver AnyResolver
 
-	// EmitDefaults can be override by removeEmpty
-	// instead of omitEmpty is used removeEmpty
-	// reason of this change is that some proto generators
-	// generate omitEmpty everywhere
+	// RemoveEmpty overrides EmitDefaults option.
+	// It can be used to remove `json:"something,omitempty"` tags generated
+	// by some generators
 	RemoveEmpty bool
 }
 
