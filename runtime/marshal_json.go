@@ -32,6 +32,12 @@ type JSONCustom struct {
 	// fully-qualified type name from the type URL and pass that to
 	// proto.MessageType(string).
 	AnyResolver AnyResolver
+
+	// EmitDefaults can be override by removeEmpty
+	// instead of omitEmpty is used removeEmpty
+	// reason of this change is that some proto generators
+	// generate omitEmpty everywhere
+	RemoveEmpty bool
 }
 
 // ContentType always Returns "application/json".

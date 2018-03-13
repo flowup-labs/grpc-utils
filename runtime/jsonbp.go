@@ -1,3 +1,5 @@
+package runtime
+
 // Go support for Protocol Buffers - Google's data interchange format
 //
 // Copyright 2015 The Go Authors.  All rights reserved.
@@ -36,7 +38,6 @@ It follows the specification at https://developers.google.com/protocol-buffers/d
 This package produces a different output than the standard "encoding/json" package,
 which does not operate correctly on protocol buffers.
 */
-package runtime
 
 import (
 	"bytes"
@@ -79,6 +80,12 @@ type Marshaler struct {
 	// fully-qualified type name from the type URL and pass that to
 	// proto.MessageType(string).
 	AnyResolver AnyResolver
+
+	// EmitDefaults can be override by removeEmpty
+	// instead of omitEmpty is used removeEmpty
+	// reason of this change is that some proto generators
+	// generate omitEmpty everywhere
+	RemoveEmpty bool
 }
 
 // AnyResolver takes a type URL, present in an Any message, and resolves it into
@@ -246,6 +253,7 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 		firstField = false
 	}
 
+fieldLoop:
 	for i := 0; i < s.NumField(); i++ {
 		value := s.Field(i)
 		valueField := s.Type().Field(i)
@@ -298,6 +306,28 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 			valueField = sv.Type().Field(0)
 		}
 		prop := jsonProperties(valueField, m.OrigName)
+
+		// Get json tag if is exist
+		if tag, ok := valueField.Tag.Lookup("json"); ok {
+			switch tag {
+			// ignore field
+			case "-":
+				continue
+			default:
+				tags := strings.Split(tag, ",")
+				// use json tag as json name
+				if len(tags) > 0 {
+					prop.JSONName = tags[0]
+				}
+
+				for i := 1; i < len(tags); i++ {
+					if m.RemoveEmpty && tags[i] == "removeEmpty" && value.String() == "" {
+						continue fieldLoop
+					}
+				}
+			}
+		}
+
 		if !firstField {
 			m.writeSep(out)
 		}
@@ -349,6 +379,7 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 		out.write(indent)
 	}
 	out.write("}")
+
 	return out.err
 }
 
