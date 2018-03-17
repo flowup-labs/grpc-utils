@@ -32,7 +32,7 @@ This feature is used fully if you need nested output but in same time you want i
 
 :warning: is working only with structure generated from proto
 
-#### Marshaler:
+#### marshall:
 ##### usage:
 proto file
 ```proto
