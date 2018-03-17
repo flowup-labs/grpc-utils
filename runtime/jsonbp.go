@@ -125,7 +125,20 @@ type JSONPBUnmarshaler interface {
 // Marshal marshals a protocol buffer into JSON.
 func (m *Marshaler) Marshal(out io.Writer, pb proto.Message) error {
 	writer := &errWriter{writer: out}
-	return m.marshalObject(writer, pb, "", "")
+	builder := &Builder{}
+	builder.Output = make(map[string]interface{})
+
+	if err := m.marshalObject(pb, "", "", builder); err != nil {
+		return err
+	}
+
+	b, err := json.Marshal(builder.Output)
+	if err != nil {
+		return err
+	}
+
+	writer.write(string(b))
+	return nil
 }
 
 // MarshalToString converts a protocol buffer object to JSON string.
@@ -155,7 +168,7 @@ type wkt interface {
 }
 
 // marshalObject writes a struct to the Writer.
-func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeURL string) error {
+func (m *Marshaler) marshalObject(v proto.Message, indent, typeURL string, builder *Builder) error {
 	if jsm, ok := v.(JSONPBMarshaler); ok {
 		b, err := jsm.MarshalJSONPB(m)
 		if err != nil {
@@ -176,25 +189,26 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 				return err
 			}
 		}
-
-		out.write(string(b))
-		return out.err
+		//out.write(string(b))
+		return nil
 	}
 
 	s := reflect.ValueOf(v).Elem()
 
 	// Handle well-known types.
 	if wkt, ok := v.(wkt); ok {
+
 		switch wkt.XXX_WellKnownType() {
 		case "DoubleValue", "FloatValue", "Int64Value", "UInt64Value",
 			"Int32Value", "UInt32Value", "BoolValue", "StringValue", "BytesValue":
 			// "Wrappers use the same representation in JSON
 			//  as the wrapped primitive type, ..."
 			sprop := proto.GetProperties(s.Type())
-			return m.marshalValue(out, sprop.Prop[0], s.Field(0), indent)
+			_, err := m.marshalValue(sprop.Prop[0], s.Field(0), indent, builder)
+			return err
 		case "Any":
 			// Any is a bit more involved.
-			return m.marshalAny(out, v, indent)
+			return m.marshalAny(v, indent, builder)
 		case "Duration":
 			// "Generated output always contains 3, 6, or 9 fractional digits,
 			//  depending on required precision."
@@ -203,14 +217,15 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 			x := fmt.Sprintf("%.9f", d.Seconds())
 			x = strings.TrimSuffix(x, "000")
 			x = strings.TrimSuffix(x, "000")
-			out.write(`"`)
-			out.write(x)
-			out.write(`s"`)
-			return out.err
+			//out.write(`"`)
+			//out.write(x)
+			//out.write(`s"`)
+			return nil
 		case "Struct", "ListValue":
 			// Let marshalValue handle the `Struct.fields` map or the `ListValue.values` slice.
 			// TODO: pass the correct Properties if needed.
-			return m.marshalValue(out, &proto.Properties{}, s.Field(0), indent)
+			_, err := m.marshalValue(&proto.Properties{}, s.Field(0), indent, builder)
+			return err
 		case "Timestamp":
 			// "RFC 3339, where generated output will always be Z-normalized
 			//  and uses 3, 6 or 9 fractional digits."
@@ -220,10 +235,10 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 			x := t.Format("2006-01-02T15:04:05.000000000")
 			x = strings.TrimSuffix(x, "000")
 			x = strings.TrimSuffix(x, "000")
-			out.write(`"`)
-			out.write(x)
-			out.write(`Z"`)
-			return out.err
+			//out.write(`"`)
+			//out.write(x)
+			//out.write(`Z"`)
+			return nil
 		case "Value":
 			// Value has a single oneof.
 			kind := s.Field(0)
@@ -234,19 +249,21 @@ func (m *Marshaler) marshalObject(out *errWriter, v proto.Message, indent, typeU
 			// oneof -> *T -> T -> T.F
 			x := kind.Elem().Elem().Field(0)
 			// TODO: pass the correct Properties if needed.
-			return m.marshalValue(out, &proto.Properties{}, x, indent)
+			_, err := m.marshalValue(&proto.Properties{}, x, indent, builder)
+			return err
 		}
 	}
 
-	out.write("{")
+	//out.write("{")
 	if m.Indent != "" {
-		out.write("\n")
+		//out.write("\n")
 	}
 
 	firstField := true
 
 	if typeURL != "" {
-		if err := m.marshalTypeURL(out, indent, typeURL); err != nil {
+
+		if err := m.marshalTypeURL(indent, typeURL); err != nil {
 			return err
 		}
 		firstField = false
@@ -328,9 +345,9 @@ fieldLoop:
 		}
 
 		if !firstField {
-			m.writeSep(out)
+			//m.writeSep(out)
 		}
-		if err := m.marshalField(out, prop, value, indent); err != nil {
+		if err := m.marshalField(prop, value, indent, builder, valueField.Anonymous); err != nil {
 			return err
 		}
 		firstField = false
@@ -363,9 +380,9 @@ fieldLoop:
 			prop.Parse(desc.Tag)
 			prop.JSONName = fmt.Sprintf("[%s]", desc.Name)
 			if !firstField {
-				m.writeSep(out)
+				//m.writeSep(out)
 			}
-			if err := m.marshalField(out, &prop, value, indent); err != nil {
+			if err := m.marshalField(&prop, value, indent, builder, false); err != nil {
 				return err
 			}
 			firstField = false
@@ -374,23 +391,23 @@ fieldLoop:
 	}
 
 	if m.Indent != "" {
-		out.write("\n")
-		out.write(indent)
+		//out.write("\n")
+		//out.write(indent)
 	}
-	out.write("}")
+	//out.write("}")
 
-	return out.err
+	return nil
 }
 
 func (m *Marshaler) writeSep(out *errWriter) {
 	if m.Indent != "" {
-		out.write(",\n")
+		//out.write(",\n")
 	} else {
-		out.write(",")
+		//out.write(",")
 	}
 }
 
-func (m *Marshaler) marshalAny(out *errWriter, any proto.Message, indent string) error {
+func (m *Marshaler) marshalAny(any proto.Message, indent string, builder *Builder) error {
 	// "If the Any contains a value that has a special JSON mapping,
 	//  it will be converted as follows: {"@type": xxx, "value": yyy}.
 	//  Otherwise, the value will be converted into a JSON object,
@@ -415,106 +432,149 @@ func (m *Marshaler) marshalAny(out *errWriter, any proto.Message, indent string)
 	}
 
 	if _, ok := msg.(wkt); ok {
-		out.write("{")
+		//out.write("{")
 		if m.Indent != "" {
-			out.write("\n")
+			//out.write("\n")
 		}
-		if err := m.marshalTypeURL(out, indent, turl); err != nil {
+		if err := m.marshalTypeURL(indent, turl); err != nil {
 			return err
 		}
-		m.writeSep(out)
+		//m.writeSep(out)
 		if m.Indent != "" {
-			out.write(indent)
-			out.write(m.Indent)
-			out.write(`"value": `)
+			//out.write(indent)
+			//out.write(m.Indent)
+			//out.write(`"value": `)
 		} else {
-			out.write(`"value":`)
+			//out.write(`"value":`)
 		}
-		if err := m.marshalObject(out, msg, indent+m.Indent, ""); err != nil {
+		if err := m.marshalObject(msg, indent+m.Indent, "", builder); err != nil {
 			return err
 		}
 		if m.Indent != "" {
-			out.write("\n")
-			out.write(indent)
+			//out.write("\n")
+			//out.write(indent)
 		}
-		out.write("}")
-		return out.err
+		//out.write("}")
+		return nil
 	}
-
-	return m.marshalObject(out, msg, indent, turl)
+	return m.marshalObject(msg, indent, turl, builder)
 }
 
-func (m *Marshaler) marshalTypeURL(out *errWriter, indent, typeURL string) error {
+func (m *Marshaler) marshalTypeURL(indent, typeURL string) error {
 	if m.Indent != "" {
-		out.write(indent)
-		out.write(m.Indent)
+		//out.write(indent)
+		//out.write(m.Indent)
 	}
-	out.write(`"@type":`)
+	//out.write(`"@type":`)
 	if m.Indent != "" {
-		out.write(" ")
+		//out.write(" ")
 	}
-	b, err := json.Marshal(typeURL)
+	_, err := json.Marshal(typeURL)
 	if err != nil {
 		return err
 	}
-	out.write(string(b))
-	return out.err
+	//out.write(string(b))
+	return nil
+}
+
+type Builder struct {
+	Output map[string]interface{}
+}
+
+func mapBuilder(y, len int, include []string, x map[string]interface{}, value string) {
+	if y > len {
+		return
+	}
+
+	tag := include[y]
+
+	if x[tag] == nil {
+		x[tag] = make(map[string]interface{})
+	}
+
+	mapBuilder(y+1, len, include, x[tag].(map[string]interface{}), value)
+
+	if y == len {
+		x[tag] = value
+	}
+
 }
 
 // marshalField writes field description and value to the Writer.
-func (m *Marshaler) marshalField(out *errWriter, prop *proto.Properties, v reflect.Value, indent string) error {
+func (m *Marshaler) marshalField(prop *proto.Properties, v reflect.Value, indent string, builder *Builder, anonymous bool) error {
 	if m.Indent != "" {
-		out.write(indent)
-		out.write(m.Indent)
+		//out.write(indent)
+		//out.write(m.Indent)
 	}
-	out.write(`"`)
-	out.write(prop.JSONName)
-	out.write(`":`)
+	//out.write(`"`)
+	//out.write(prop.JSONName)
+	//out.write(`":`)
 	if m.Indent != "" {
-		out.write(" ")
+		//out.write(" ")
 	}
-	if err := m.marshalValue(out, prop, v, indent); err != nil {
+	value, err := m.marshalValue(prop, v, indent, builder)
+	if err != nil {
 		return err
 	}
+
+	include := strings.Split(prop.JSONName, ".")
+	if len(include) > 0 && !anonymous {
+		mapBuilder(0, len(include)-1, include, builder.Output, value)
+	}
+
 	return nil
 }
 
 // marshalValue writes the value to the Writer.
-func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v reflect.Value, indent string) error {
+func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent string, builder *Builder) (string, error) {
 	var err error
 	v = reflect.Indirect(v)
+	value := ""
 
 	// Handle nil pointer
 	if v.Kind() == reflect.Invalid {
-		out.write("null")
-		return out.err
+		value += "null"
+		//out.write("null")
+		return value, nil
 	}
 
 	// Handle repeated elements.
 	if v.Kind() == reflect.Slice && v.Type().Elem().Kind() != reflect.Uint8 {
-		out.write("[")
+		value += "["
+		//out.write("[")
 		comma := ""
 		for i := 0; i < v.Len(); i++ {
 			sliceVal := v.Index(i)
-			out.write(comma)
+			value += comma
+			//out.write(comma)
 			if m.Indent != "" {
-				out.write("\n")
-				out.write(indent)
-				out.write(m.Indent)
-				out.write(m.Indent)
+				value += "\n"
+				//out.write("\n")
+				value += indent
+				//out.write(indent)
+				value += m.Indent
+				//out.write(m.Indent)
+				value += m.Indent
+				//out.write(m.Indent)
 			}
-			if err := m.marshalValue(out, prop, sliceVal, indent+m.Indent); err != nil {
-				return err
+
+			if _, err := m.marshalValue(prop, sliceVal, indent+m.Indent, builder); err != nil {
+				return value, err
 			}
 			comma = ","
 		}
 		if m.Indent != "" {
-			out.write("\n")
-			out.write(indent)
-			out.write(m.Indent)
+			value += "\n"
+			//out.write("\n")
+			value += indent
+			//out.write(indent)
+			value += m.Indent
+			//out.write(m.Indent)
 		}
-		out.write("]")
-		return out.err
+		value += "]"
+		//out.write("]")
+
+		return value, nil
 	}
 
 	// Handle well-known types.
@@ -522,8 +582,9 @@ func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v refle
 	if wkt, ok := v.Interface().(wkt); ok {
 		switch wkt.XXX_WellKnownType() {
 		case "NullValue":
-			out.write("null")
-			return out.err
+			value += ("null")
+			//out.write(("null"))
+			return value, nil
 		}
 	}
 
@@ -541,40 +602,48 @@ func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v refle
 		}
 		isKnownEnum := enumStr != valStr
 		if isKnownEnum {
-			out.write(`"`)
+			//out.write(`"`)
 		}
-		out.write(enumStr)
+		value += (enumStr)
+		//out.write((enumStr))
 		if isKnownEnum {
-			out.write(`"`)
+			//out.write(`"`)
 		}
-		return out.err
+
+		return value, nil
 	}
 
 	// Handle nested messages.
 	if v.Kind() == reflect.Struct {
-		return m.marshalObject(out, v.Addr().Interface().(proto.Message), indent+m.Indent, "")
+		return value, m.marshalObject(v.Addr().Interface().(proto.Message), indent+m.Indent, "", builder)
 	}
 
 	// Handle maps.
 	// Since Go randomizes map iteration, we sort keys for stable output.
 	if v.Kind() == reflect.Map {
-		out.write(`{`)
+		value += `{`
+		//out.write(`{`)
 		keys := v.MapKeys()
 		sort.Sort(mapKeys(keys))
 		for i, k := range keys {
 			if i > 0 {
-				out.write(`,`)
+				value += `,`
+				//out.write(`,`)
 			}
 			if m.Indent != "" {
-				out.write("\n")
-				out.write(indent)
-				out.write(m.Indent)
-				out.write(m.Indent)
+				value += "\n"
+				//out.write("\n")
+				value += indent
+				//out.write(indent)
+				value += m.Indent
+				//out.write(m.Indent)
+				value += m.Indent
+				//out.write(m.Indent)
 			}
 
 			b, err := json.Marshal(k.Interface())
 			if err != nil {
-				return err
+				return value, err
 			}
 			s := string(b)
 
@@ -582,28 +651,36 @@ func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v refle
 			if !strings.HasPrefix(s, `"`) {
 				b, err := json.Marshal(s)
 				if err != nil {
-					return err
+					return value, err
 				}
 				s = string(b)
 			}
 
-			out.write(s)
-			out.write(`:`)
+			value += s
+			//out.write(s)
+			value += `:`
+			//out.write(`:`)
 			if m.Indent != "" {
-				out.write(` `)
+				value += ` `
+				//out.write(` `)
 			}
 
-			if err := m.marshalValue(out, prop, v.MapIndex(k), indent+m.Indent); err != nil {
-				return err
+			if _, err := m.marshalValue(prop, v.MapIndex(k), indent+m.Indent, builder); err != nil {
+				return value, err
 			}
 		}
 		if m.Indent != "" {
-			out.write("\n")
-			out.write(indent)
-			out.write(m.Indent)
+			value += "\n"
+			//out.write("\n")
+			value += indent
+			//out.write(indent)
+			value += m.Indent
+			//out.write(m.Indent)
 		}
-		out.write(`}`)
-		return out.err
+		value += `}`
+		//out.write(`}`)
+
+		return value, nil
 	}
 
 	// Handle non-finite floats, e.g. NaN, Infinity and -Infinity.
@@ -619,25 +696,30 @@ func (m *Marshaler) marshalValue(out *errWriter, prop *proto.Properties, v refle
 			sval = `"NaN"`
 		}
 		if sval != "" {
-			out.write(sval)
-			return out.err
+			value += sval
+			//out.write(sval)
+			return value, nil
 		}
 	}
 
 	// Default handling defers to the encoding/json library.
 	b, err := json.Marshal(v.Interface())
 	if err != nil {
-		return err
+		return value, err
 	}
 	needToQuote := string(b[0]) != `"` && (v.Kind() == reflect.Int64 || v.Kind() == reflect.Uint64)
 	if needToQuote {
-		out.write(`"`)
+		//out.write(`"`)
 	}
-	out.write(string(b))
+
+	if len(string(b)) > 1 {
+		value += string(b)[1 : len(string(b))-1]
+	}
+	//out.write(string(b))
 	if needToQuote {
-		out.write(`"`)
+		//out.write(`"`)
 	}
-	return out.err
+	return value, nil
 }
 
 // Unmarshaler is a configurable object for converting from a JSON
@@ -779,7 +861,6 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 				return fmt.Errorf("can't marshal proto %T into Any.Value: %v", m, err)
 			}
 			target.Field(1).SetBytes(b)
-
 			return nil
 		case "Duration":
 			unq, err := strconv.Unquote(string(inputValue))
@@ -1057,7 +1138,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 // jsonProperties returns parsed proto.Properties for the field and corrects JSONName attribute.
 func jsonProperties(f reflect.StructField, origName bool) *proto.Properties {
 	var prop proto.Properties
-	prop.Init(f.Type, f.Name, f.Tag.Get("protobuf"), &f)
+	//prop.Init(f.Type, f.Name, f.Tag.Get("protobuf"), &f)
 	if origName || prop.JSONName == "" {
 		prop.JSONName = prop.OrigName
 	}
