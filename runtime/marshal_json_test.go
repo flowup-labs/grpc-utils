@@ -871,8 +871,6 @@ func (m *EmbedMsg) Reset()         { *m = EmbedMsg{} }
 func (m *EmbedMsg) String() string { return proto.CompactTextString(m) }
 func (*EmbedMsg) ProtoMessage()    {}
 
-//todo
-
 func TestJSONCustomNestedMarshal(t *testing.T) {
 	var m JSONCustom
 
@@ -898,7 +896,7 @@ func TestJSONCustomNestedMarshal(t *testing.T) {
 	}
 }
 
-/*func TestJSONCustomNestedUnmarshaler(t *testing.T) {
+/*func TestJSONCustomNestedUnmarshal(t *testing.T) {
 	var m JSONCustom
 
 	msgInput := Msg{
