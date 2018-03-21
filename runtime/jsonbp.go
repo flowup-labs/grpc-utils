@@ -55,6 +55,7 @@ import (
 	"github.com/golang/protobuf/proto"
 
 	stpb "github.com/golang/protobuf/ptypes/struct"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 )
 
 // Marshaler is a configurable object for converting between
@@ -481,7 +482,7 @@ type Builder struct {
 	Output map[string]interface{}
 }
 
-func mapBuilder(y, len int, include []string, x map[string]interface{}, value string) {
+func (m *Marshaler) mapBuilder(y, len int, include []string, x map[string]interface{}, value interface{}) {
 	if y > len {
 		return
 	}
@@ -492,7 +493,7 @@ func mapBuilder(y, len int, include []string, x map[string]interface{}, value st
 		x[tag] = make(map[string]interface{})
 	}
 
-	mapBuilder(y+1, len, include, x[tag].(map[string]interface{}), value)
+	m.mapBuilder(y+1, len, include, x[tag].(map[string]interface{}), value)
 
 	if y == len {
 		x[tag] = value
@@ -519,14 +520,14 @@ func (m *Marshaler) marshalField(prop *proto.Properties, v reflect.Value, indent
 
 	include := strings.Split(prop.JSONName, ".")
 	if len(include) > 0 && !anonymous {
-		mapBuilder(0, len(include)-1, include, builder.Output, value)
+		m.mapBuilder(0, len(include)-1, include, builder.Output, value)
 	}
 
 	return nil
 }
 
 // marshalValue writes the value to the Writer.
-func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent string, builder *Builder) (string, error) {
+func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent string, builder *Builder) (interface{}, error) {
 	var err error
 	v = reflect.Indirect(v)
 	value := ""
@@ -713,7 +714,11 @@ func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent
 	}
 
 	if len(string(b)) > 1 {
-		value += string(b)[1 : len(string(b))-1]
+		if v.Kind() == reflect.String {
+			value += string(b)[1 : len(string(b))-1]
+		} else {
+			return v.Interface(), nil
+		}
 	}
 	//out.write(string(b))
 	if needToQuote {
@@ -739,7 +744,7 @@ type Unmarshaler struct {
 // UnmarshalNext unmarshals the next protocol buffer from a JSON object stream.
 // This function is lenient and will decode any options permutations of the
 // related Marshaler.
-func (u *Unmarshaler) UnmarshalNext(dec *json.Decoder, pb proto.Message) error {
+func (u *Unmarshaler) UnmarshalNext(dec runtime.Decoder, pb proto.Message) error {
 	inputValue := json.RawMessage{}
 	if err := dec.Decode(&inputValue); err != nil {
 		return err
@@ -951,6 +956,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 	// The case of an enum appearing as a number is handled
 	// at the bottom of this function.
 	if inputValue[0] == '"' && prop != nil && prop.Enum != "" {
+
 		vmap := proto.EnumValueMap(prop.Enum)
 		// Don't need to do unquoting; valid enum names
 		// are from a limited character set.
@@ -998,14 +1004,70 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 
 		sprops := proto.GetProperties(targetType)
 		for i := 0; i < target.NumField(); i++ {
+			var valueForField json.RawMessage
+			var override bool
+
 			ft := target.Type().Field(i)
 			if strings.HasPrefix(ft.Name, "XXX_") {
 				continue
 			}
 
-			valueForField, ok := consumeField(sprops.Prop[i])
-			if !ok {
-				continue
+			if tag, ok := ft.Tag.Lookup("protobuf"); ok {
+				if target.Field(i).Kind() == reflect.Struct && strings.Contains(tag, "embedded") {
+					if err := json.Unmarshal(inputValue, &valueForField); err != nil {
+						return err
+					}
+
+					spropsR := proto.GetProperties(target.Field(i).Type())
+
+					for y := 0; y < target.Field(i).NumField(); y++ {
+						if err := u.unmarshalValue(target.Field(i), valueForField, spropsR.Prop[y]); err != nil {
+							return err
+						}
+					}
+				}
+			}
+
+			if tag, ok := ft.Tag.Lookup("json"); ok {
+				switch tag {
+				// ignore field
+				case "-":
+					continue
+				default:
+					tags := strings.Split(tag, ",")
+					if len(tags) < 0 {
+						break
+					}
+
+					include := strings.Split(tags[0], ".")
+					if len(include) > 0 {
+
+						fields := map[string]interface{}{}
+
+						if err := json.Unmarshal(inputValue, &fields); err != nil {
+							return err
+						}
+
+						value := u.mapBuilder(fields, 0, len(include)-1, include)
+
+						if _, ok := value.(string); ok {
+							valueForField = []byte(`"` + value.(string) + `"`)
+							override = true
+						} else if _, ok := value.(float64); ok {
+							valueForField = []byte(strconv.FormatFloat(value.(float64), 'f', 0, 64))
+							override = true
+						}
+
+					}
+				}
+			}
+
+			if !override {
+				var ok bool
+				valueForField, ok = consumeField(sprops.Prop[i])
+				if !ok {
+					continue
+				}
 			}
 
 			if err := u.unmarshalValue(target.Field(i), valueForField, sprops.Prop[i]); err != nil {
@@ -1060,6 +1122,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 
 	// Handle arrays (which aren't encoded bytes)
 	if targetType.Kind() == reflect.Slice && targetType.Elem().Kind() != reflect.Uint8 {
+
 		var slc []json.RawMessage
 		if err := json.Unmarshal(inputValue, &slc); err != nil {
 			return err
@@ -1133,6 +1196,24 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 
 	// Use the encoding/json for parsing other value types.
 	return json.Unmarshal(inputValue, target.Addr().Interface())
+}
+
+func (u *Unmarshaler) mapBuilder(x map[string]interface{}, y, len int, include []string) interface{} {
+	if y > len {
+		return nil
+	}
+
+	if _, ok := x[include[y]].(map[string]interface{}); ok {
+		if value := u.mapBuilder(x[include[y]].(map[string]interface{}), y+1, len, include); value != nil {
+			return value
+		}
+	}
+
+	if y == len {
+		return x[include[y]]
+	}
+
+	return nil
 }
 
 // jsonProperties returns parsed proto.Properties for the field and corrects JSONName attribute.

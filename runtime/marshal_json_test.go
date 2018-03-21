@@ -852,11 +852,12 @@ var (
 )
 
 type Msg struct {
-	Firstname string `protobuf:"bytes,1,opt,name=firstname,proto3" json:"name.firstname,omitempty"`
-	PseudoFirstname string `protobuf:"bytes,3,opt,name=pseudoLastname,proto3" json:"lastname,omitempty"`
-	EmbedMsg `protobuf:"bytes,4,opt,name=embedMsg,embedded=embedMsg" json:"embedMsg,omitempty"`
-	Lastname string `protobuf:"bytes,5,opt,name=lastname,proto3" json:"name.lastname,omitempty"`
-	Inside string `protobuf:"bytes,6,opt,name=inside,proto3" json:"name.inside.a.b.c,omitempty"`
+	Firstname       string `protobuf:"bytes,1,opt,name=firstname,proto3" json:"name.firstname,omitempty"`
+	PseudoFirstname string `protobuf:"bytes,3,opt,name=pseudoLastname,proto3" json:"firstname,omitempty"`
+	EmbedMsg               `protobuf:"bytes,4,opt,name=embedMsg,embedded=embedMsg" json:"embedMsg,omitempty"`
+	Lastname        string `protobuf:"bytes,5,opt,name=lastname,proto3" json:"name.lastname,omitempty"`
+	Inside          string `protobuf:"bytes,6,opt,name=inside,proto3" json:"name.inside.a.b.c,omitempty"`
+	Normal          int32  `protobuf:"varint,6,opt,name=normal,proto3" json:"notToNormal,omitempty"`
 }
 
 func (m *Msg) Reset()         { *m = Msg{} }
@@ -882,9 +883,10 @@ func TestJSONCustomNestedMarshal(t *testing.T) {
 			Opt1: "var",
 		},
 		Inside: "goo",
+		Normal: 444,
 	}
 
-	data := []byte(`{"lastname":"Three","name":{"firstname":"One","inside":{"a":{"b":{"c":"goo"}}},"lastname":"Two"},"opt1":"var"}`)
+	data := []byte(`{"firstname":"Three","name":{"firstname":"One","inside":{"a":{"b":{"c":"goo"}}},"lastname":"Two"},"notToNormal":444,"opt1":"var"}`)
 
 	buf, err := m.Marshal(&msgInput)
 	if err != nil {
@@ -896,7 +898,7 @@ func TestJSONCustomNestedMarshal(t *testing.T) {
 	}
 }
 
-/*func TestJSONCustomNestedUnmarshal(t *testing.T) {
+func TestJSONCustomNestedUnmarshal(t *testing.T) {
 	var m JSONCustom
 
 	msgInput := Msg{
@@ -907,18 +909,18 @@ func TestJSONCustomNestedMarshal(t *testing.T) {
 			Opt1: "var",
 		},
 		Inside: "goo",
+		Normal: 44,
 	}
 
-	data := []byte(`{"lastname":"Three","name":{"firstname":"One","inside":{"a":{"b":{"c":"goo"}}},"lastname":"Two"},"opt1":"var"}`)
+	data := []byte(`{"firstname":"Three","name":{"firstname":"One","inside":{"a":{"b":{"c":"goo"}}},"lastname":"Two"},"opt1":"var", "notToNormal":44}`)
 
 	msgOutput := Msg{}
 
 	if err := m.Unmarshal(data, &msgOutput); err != nil {
 		t.Errorf("json.Unmarshal(%q, &data) failed with %v; want success", data, err)
 	}
+
 	if want := msgInput; !reflect.DeepEqual(msgOutput, want) {
 		t.Errorf("got = %v; want %v", &msgOutput, &want)
 	}
-}*/
-
-
+}
