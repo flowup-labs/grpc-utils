@@ -493,7 +493,9 @@ func (m *Marshaler) mapBuilder(y, len int, include []string, x map[string]interf
 		x[tag] = make(map[string]interface{})
 	}
 
-	m.mapBuilder(y+1, len, include, x[tag].(map[string]interface{}), value)
+	if _, ok := x[tag].(map[string]interface{}); ok {
+		m.mapBuilder(y+1, len, include, x[tag].(map[string]interface{}), value)
+	}
 
 	if y == len {
 		x[tag] = value
@@ -503,16 +505,7 @@ func (m *Marshaler) mapBuilder(y, len int, include []string, x map[string]interf
 
 // marshalField writes field description and value to the Writer.
 func (m *Marshaler) marshalField(prop *proto.Properties, v reflect.Value, indent string, builder *Builder, anonymous bool) error {
-	if m.Indent != "" {
-		//out.write(indent)
-		//out.write(m.Indent)
-	}
-	//out.write(`"`)
-	//out.write(prop.JSONName)
-	//out.write(`":`)
-	if m.Indent != "" {
-		//out.write(" ")
-	}
+
 	value, err := m.marshalValue(prop, v, indent, builder)
 	if err != nil {
 		return err
@@ -528,65 +521,16 @@ func (m *Marshaler) marshalField(prop *proto.Properties, v reflect.Value, indent
 
 // marshalValue writes the value to the Writer.
 func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent string, builder *Builder) (interface{}, error) {
-	var err error
 	v = reflect.Indirect(v)
-	value := ""
 
 	// Handle nil pointer
 	if v.Kind() == reflect.Invalid {
-		value += "null"
-		//out.write("null")
-		return value, nil
+		return nil, nil
 	}
 
-	// Handle repeated elements.
-	if v.Kind() == reflect.Slice && v.Type().Elem().Kind() != reflect.Uint8 {
-		value += "["
-		//out.write("[")
-		comma := ""
-		for i := 0; i < v.Len(); i++ {
-			sliceVal := v.Index(i)
-			value += comma
-			//out.write(comma)
-			if m.Indent != "" {
-				value += "\n"
-				//out.write("\n")
-				value += indent
-				//out.write(indent)
-				value += m.Indent
-				//out.write(m.Indent)
-				value += m.Indent
-				//out.write(m.Indent)
-			}
-
-			if _, err := m.marshalValue(prop, sliceVal, indent+m.Indent, builder); err != nil {
-				return value, err
-			}
-			comma = ","
-		}
-		if m.Indent != "" {
-			value += "\n"
-			//out.write("\n")
-			value += indent
-			//out.write(indent)
-			value += m.Indent
-			//out.write(m.Indent)
-		}
-		value += "]"
-		//out.write("]")
-
-		return value, nil
-	}
-
-	// Handle well-known types.
-	// Most are handled up in marshalObject (because 99% are messages).
-	if wkt, ok := v.Interface().(wkt); ok {
-		switch wkt.XXX_WellKnownType() {
-		case "NullValue":
-			value += ("null")
-			//out.write(("null"))
-			return value, nil
-		}
+	// Handle nested messages.
+	if v.Kind() == reflect.Struct {
+		return v.Interface(), m.marshalObject(v.Addr().Interface().(proto.Message), indent+m.Indent, "", builder)
 	}
 
 	// Handle enumerations.
@@ -603,128 +547,13 @@ func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent
 		}
 		isKnownEnum := enumStr != valStr
 		if isKnownEnum {
-			//out.write(`"`)
-		}
-		value += (enumStr)
-		//out.write((enumStr))
-		if isKnownEnum {
-			//out.write(`"`)
+			return enumStr, errors.New("Enum isn't known")
 		}
 
-		return value, nil
+		return enumStr, nil
 	}
 
-	// Handle nested messages.
-	if v.Kind() == reflect.Struct {
-		return value, m.marshalObject(v.Addr().Interface().(proto.Message), indent+m.Indent, "", builder)
-	}
-
-	// Handle maps.
-	// Since Go randomizes map iteration, we sort keys for stable output.
-	if v.Kind() == reflect.Map {
-		value += `{`
-		//out.write(`{`)
-		keys := v.MapKeys()
-		sort.Sort(mapKeys(keys))
-		for i, k := range keys {
-			if i > 0 {
-				value += `,`
-				//out.write(`,`)
-			}
-			if m.Indent != "" {
-				value += "\n"
-				//out.write("\n")
-				value += indent
-				//out.write(indent)
-				value += m.Indent
-				//out.write(m.Indent)
-				value += m.Indent
-				//out.write(m.Indent)
-			}
-
-			b, err := json.Marshal(k.Interface())
-			if err != nil {
-				return value, err
-			}
-			s := string(b)
-
-			// If the JSON is not a string value, encode it again to make it one.
-			if !strings.HasPrefix(s, `"`) {
-				b, err := json.Marshal(s)
-				if err != nil {
-					return value, err
-				}
-				s = string(b)
-			}
-
-			value += s
-			//out.write(s)
-			value += `:`
-			//out.write(`:`)
-			if m.Indent != "" {
-				value += ` `
-				//out.write(` `)
-			}
-
-			if _, err := m.marshalValue(prop, v.MapIndex(k), indent+m.Indent, builder); err != nil {
-				return value, err
-			}
-		}
-		if m.Indent != "" {
-			value += "\n"
-			//out.write("\n")
-			value += indent
-			//out.write(indent)
-			value += m.Indent
-			//out.write(m.Indent)
-		}
-		value += `}`
-		//out.write(`}`)
-
-		return value, nil
-	}
-
-	// Handle non-finite floats, e.g. NaN, Infinity and -Infinity.
-	if v.Kind() == reflect.Float32 || v.Kind() == reflect.Float64 {
-		f := v.Float()
-		var sval string
-		switch {
-		case math.IsInf(f, 1):
-			sval = `"Infinity"`
-		case math.IsInf(f, -1):
-			sval = `"-Infinity"`
-		case math.IsNaN(f):
-			sval = `"NaN"`
-		}
-		if sval != "" {
-			value += sval
-			//out.write(sval)
-			return value, nil
-		}
-	}
-
-	// Default handling defers to the encoding/json library.
-	b, err := json.Marshal(v.Interface())
-	if err != nil {
-		return value, err
-	}
-	needToQuote := string(b[0]) != `"` && (v.Kind() == reflect.Int64 || v.Kind() == reflect.Uint64)
-	if needToQuote {
-		//out.write(`"`)
-	}
-
-	if len(string(b)) > 1 {
-		if v.Kind() == reflect.String {
-			value += string(b)[1 : len(string(b))-1]
-		} else {
-			return v.Interface(), nil
-		}
-	}
-	//out.write(string(b))
-	if needToQuote {
-		//out.write(`"`)
-	}
-	return value, nil
+	return v.Interface(), nil
 }
 
 // Unmarshaler is a configurable object for converting from a JSON
