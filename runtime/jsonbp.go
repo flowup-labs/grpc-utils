@@ -58,6 +58,11 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 )
 
+type Properties struct {
+	origProp *proto.Properties
+	Embedded bool
+}
+
 // Marshaler is a configurable object for converting between
 // protocol buffer objects and a JSON representation for them.
 type Marshaler struct {
@@ -169,7 +174,7 @@ type wkt interface {
 }
 
 // marshalObject writes a struct to the Writer.
-func (m *Marshaler) marshalObject(v proto.Message, indent, typeURL string, builder *Builder) error {
+func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, builder *Builder) error {
 	if jsm, ok := v.(JSONPBMarshaler); ok {
 		b, err := jsm.MarshalJSONPB(m)
 		if err != nil {
@@ -205,11 +210,11 @@ func (m *Marshaler) marshalObject(v proto.Message, indent, typeURL string, build
 			// "Wrappers use the same representation in JSON
 			//  as the wrapped primitive type, ..."
 			sprop := proto.GetProperties(s.Type())
-			_, err := m.marshalValue(sprop.Prop[0], s.Field(0), indent, builder)
+			_, err := m.marshalValue(&Properties{origProp: sprop.Prop[0]}, s.Field(0), nested, builder)
 			return err
 		case "Any":
 			// Any is a bit more involved.
-			return m.marshalAny(v, indent, builder)
+			return m.marshalAny(v, nested, builder)
 		case "Duration":
 			// "Generated output always contains 3, 6, or 9 fractional digits,
 			//  depending on required precision."
@@ -225,7 +230,7 @@ func (m *Marshaler) marshalObject(v proto.Message, indent, typeURL string, build
 		case "Struct", "ListValue":
 			// Let marshalValue handle the `Struct.fields` map or the `ListValue.values` slice.
 			// TODO: pass the correct Properties if needed.
-			_, err := m.marshalValue(&proto.Properties{}, s.Field(0), indent, builder)
+			_, err := m.marshalValue(&Properties{}, s.Field(0), nested, builder)
 			return err
 		case "Timestamp":
 			// "RFC 3339, where generated output will always be Z-normalized
@@ -250,7 +255,7 @@ func (m *Marshaler) marshalObject(v proto.Message, indent, typeURL string, build
 			// oneof -> *T -> T -> T.F
 			x := kind.Elem().Elem().Field(0)
 			// TODO: pass the correct Properties if needed.
-			_, err := m.marshalValue(&proto.Properties{}, x, indent, builder)
+			_, err := m.marshalValue(&Properties{}, x, nested, builder)
 			return err
 		}
 	}
@@ -264,7 +269,7 @@ func (m *Marshaler) marshalObject(v proto.Message, indent, typeURL string, build
 
 	if typeURL != "" {
 
-		if err := m.marshalTypeURL(indent, typeURL); err != nil {
+		if err := m.marshalTypeURL(nested, typeURL); err != nil {
 			return err
 		}
 		firstField = false
@@ -334,7 +339,7 @@ fieldLoop:
 				tags := strings.Split(tag, ",")
 				// use json tag as json name
 				if len(tags) > 0 {
-					prop.JSONName = tags[0]
+					prop.origProp.JSONName = tags[0]
 				}
 
 				for i := 1; i < len(tags); i++ {
@@ -348,7 +353,8 @@ fieldLoop:
 		if !firstField {
 			//m.writeSep(out)
 		}
-		if err := m.marshalField(prop, value, indent, builder, valueField.Anonymous); err != nil {
+
+		if err := m.marshalField(prop, value, nested, builder, valueField.Anonymous); err != nil {
 			return err
 		}
 		firstField = false
@@ -377,13 +383,13 @@ fieldLoop:
 				return extErr
 			}
 			value := reflect.ValueOf(ext)
-			var prop proto.Properties
-			prop.Parse(desc.Tag)
-			prop.JSONName = fmt.Sprintf("[%s]", desc.Name)
+			prop := Properties{origProp: &proto.Properties{}}
+			prop.origProp.Parse(desc.Tag)
+			prop.origProp.JSONName = fmt.Sprintf("[%s]", desc.Name)
 			if !firstField {
 				//m.writeSep(out)
 			}
-			if err := m.marshalField(&prop, value, indent, builder, false); err != nil {
+			if err := m.marshalField(&prop, value, nested, builder, false); err != nil {
 				return err
 			}
 			firstField = false
@@ -504,15 +510,19 @@ func (m *Marshaler) mapBuilder(y, len int, include []string, x map[string]interf
 }
 
 // marshalField writes field description and value to the Writer.
-func (m *Marshaler) marshalField(prop *proto.Properties, v reflect.Value, indent string, builder *Builder, anonymous bool) error {
+func (m *Marshaler) marshalField(prop *Properties, v reflect.Value, nested string, builder *Builder, anonymous bool) error {
 
-	value, err := m.marshalValue(prop, v, indent, builder)
+	value, err := m.marshalValue(prop, v, nested, builder)
 	if err != nil {
 		return err
 	}
 
-	include := strings.Split(prop.JSONName, ".")
-	if len(include) > 0 && !anonymous {
+	include := strings.Split(prop.origProp.JSONName, ".")
+	if nested != "" {
+		include = append([]string{nested}, include...)
+	}
+
+	if len(include) > 0 && !anonymous && value != nil {
 		m.mapBuilder(0, len(include)-1, include, builder.Output, value)
 	}
 
@@ -520,7 +530,7 @@ func (m *Marshaler) marshalField(prop *proto.Properties, v reflect.Value, indent
 }
 
 // marshalValue writes the value to the Writer.
-func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent string, builder *Builder) (interface{}, error) {
+func (m *Marshaler) marshalValue(prop *Properties, v reflect.Value, indent string, builder *Builder) (interface{}, error) {
 	v = reflect.Indirect(v)
 
 	// Handle nil pointer
@@ -530,25 +540,19 @@ func (m *Marshaler) marshalValue(prop *proto.Properties, v reflect.Value, indent
 
 	// Handle nested messages.
 	if v.Kind() == reflect.Struct {
-		return v.Interface(), m.marshalObject(v.Addr().Interface().(proto.Message), indent+m.Indent, "", builder)
+		nested := prop.origProp.JSONName
+		if prop.Embedded {
+			nested = ""
+		}
+		return nil, m.marshalObject(v.Addr().Interface().(proto.Message), nested, "", builder)
 	}
 
 	// Handle enumerations.
-	if !m.EnumsAsInts && prop.Enum != "" {
+	if !m.EnumsAsInts && prop.origProp.Enum != "" {
 		// Unknown enum values will are stringified by the proto library as their
 		// value. Such values should _not_ be quoted or they will be interpreted
 		// as an enum string instead of their value.
 		enumStr := v.Interface().(fmt.Stringer).String()
-		var valStr string
-		if v.Kind() == reflect.Ptr {
-			valStr = strconv.Itoa(int(v.Elem().Int()))
-		} else {
-			valStr = strconv.Itoa(int(v.Int()))
-		}
-		isKnownEnum := enumStr != valStr
-		if isKnownEnum {
-			return enumStr, errors.New("Enum isn't known")
-		}
 
 		return enumStr, nil
 	}
@@ -612,7 +616,7 @@ func UnmarshalString(str string, pb proto.Message) error {
 
 // unmarshalValue converts/copies a value into the target.
 // prop may be nil.
-func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMessage, prop *proto.Properties) error {
+func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMessage, prop *Properties) error {
 	targetType := target.Type()
 
 	// Allocate memory for pointer fields.
@@ -784,15 +788,15 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 	// and may appear as strings.
 	// The case of an enum appearing as a number is handled
 	// at the bottom of this function.
-	if inputValue[0] == '"' && prop != nil && prop.Enum != "" {
+	if inputValue[0] == '"' && prop != nil && prop.origProp.Enum != "" {
 
-		vmap := proto.EnumValueMap(prop.Enum)
+		vmap := proto.EnumValueMap(prop.origProp.Enum)
 		// Don't need to do unquoting; valid enum names
 		// are from a limited character set.
 		s := inputValue[1 : len(inputValue)-1]
 		n, ok := vmap[string(s)]
 		if !ok {
-			return fmt.Errorf("unknown value %q for enum %s", s, prop.Enum)
+			return fmt.Errorf("unknown value %q for enum %s", s, prop.origProp.Enum)
 		}
 		if target.Kind() == reflect.Ptr { // proto2
 			target.Set(reflect.New(targetType.Elem()))
@@ -809,7 +813,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 			return err
 		}
 
-		consumeField := func(prop *proto.Properties) (json.RawMessage, bool) {
+		consumeField := func(prop *Properties) (json.RawMessage, bool) {
 			// Be liberal in what names we accept; both orig_name and camelName are okay.
 			fieldNames := acceptedJSONFieldNames(prop)
 
@@ -850,7 +854,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 					spropsR := proto.GetProperties(target.Field(i).Type())
 
 					for y := 0; y < target.Field(i).NumField(); y++ {
-						if err := u.unmarshalValue(target.Field(i), valueForField, spropsR.Prop[y]); err != nil {
+						if err := u.unmarshalValue(target.Field(i), valueForField, &Properties{origProp: spropsR.Prop[y]}); err != nil {
 							return err
 						}
 					}
@@ -893,26 +897,26 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 
 			if !override {
 				var ok bool
-				valueForField, ok = consumeField(sprops.Prop[i])
+				valueForField, ok = consumeField(&Properties{origProp: sprops.Prop[i]})
 				if !ok {
 					continue
 				}
 			}
 
-			if err := u.unmarshalValue(target.Field(i), valueForField, sprops.Prop[i]); err != nil {
+			if err := u.unmarshalValue(target.Field(i), valueForField, &Properties{origProp: sprops.Prop[i]}); err != nil {
 				return err
 			}
 		}
 		// Check for any oneof fields.
 		if len(jsonFields) > 0 {
 			for _, oop := range sprops.OneofTypes {
-				raw, ok := consumeField(oop.Prop)
+				raw, ok := consumeField(&Properties{origProp: oop.Prop})
 				if !ok {
 					continue
 				}
 				nv := reflect.New(oop.Type.Elem())
 				target.Field(oop.Field).Set(nv)
-				if err := u.unmarshalValue(nv.Elem().Field(0), raw, oop.Prop); err != nil {
+				if err := u.unmarshalValue(nv.Elem().Field(0), raw, &Properties{origProp: oop.Prop}); err != nil {
 					return err
 				}
 			}
@@ -976,7 +980,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 		}
 		if mp != nil {
 			target.Set(reflect.MakeMap(targetType))
-			var keyprop, valprop *proto.Properties
+			var keyprop, valprop *Properties
 			if prop != nil {
 				// These could still be nil if the protobuf metadata is broken somehow.
 				// TODO: This won't work because the fields are unexported.
@@ -1045,12 +1049,18 @@ func (u *Unmarshaler) mapBuilder(x map[string]interface{}, y, len int, include [
 	return nil
 }
 
-// jsonProperties returns parsed proto.Properties for the field and corrects JSONName attribute.
-func jsonProperties(f reflect.StructField, origName bool) *proto.Properties {
-	var prop proto.Properties
-	//prop.Init(f.Type, f.Name, f.Tag.Get("protobuf"), &f)
-	if origName || prop.JSONName == "" {
-		prop.JSONName = prop.OrigName
+// jsonProperties returns parsed Properties for the field and corrects JSONName attribute.
+func jsonProperties(f reflect.StructField, origName bool) *Properties {
+	origProp := proto.Properties{}
+	origProp.Init(f.Type, f.Name, f.Tag.Get("protobuf"), &f)
+	prop := Properties{origProp: &origProp}
+
+	if strings.Contains(f.Tag.Get("protobuf"), "embedded=") {
+		prop.Embedded = true
+	}
+
+	if origName || prop.origProp.JSONName == "" {
+		prop.origProp.JSONName = prop.origProp.OrigName
 	}
 	return &prop
 }
@@ -1059,10 +1069,10 @@ type fieldNames struct {
 	orig, camel string
 }
 
-func acceptedJSONFieldNames(prop *proto.Properties) fieldNames {
-	opts := fieldNames{orig: prop.OrigName, camel: prop.OrigName}
-	if prop.JSONName != "" {
-		opts.camel = prop.JSONName
+func acceptedJSONFieldNames(prop *Properties) fieldNames {
+	opts := fieldNames{orig: prop.origProp.OrigName, camel: prop.origProp.OrigName}
+	if prop.origProp.JSONName != "" {
+		opts.camel = prop.origProp.JSONName
 	}
 	return opts
 }
