@@ -39,7 +39,7 @@ proto file
 message Msg {
     Firstname string = 1 [(gogoproto.jsontag) = "name.firstname"];
     PseudoFirstname string = 2 [(gogoproto.jsontag) = "lastname"];
-    EmbedMsg = 3;
+    EmbedMsg = 3  [(gogoproto.nullable) = false, (gogoproto.embed) = true];
     Lastname string = 4 [(gogoproto.jsontag) = "name.lastname"];
     Inside string  = 5 [(gogoproto.jsontag) = "name.inside.a.b.c"];
 }
