@@ -137,7 +137,7 @@ func (m *Marshaler) Marshal(out io.Writer, pb proto.Message) error {
 	if err := m.marshalObject(pb, "", "", builder); err != nil {
 		return err
 	}
-
+	
 	b, err := json.Marshal(builder.Output)
 	if err != nil {
 		return err
@@ -210,7 +210,7 @@ func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, build
 			// "Wrappers use the same representation in JSON
 			//  as the wrapped primitive type, ..."
 			sprop := proto.GetProperties(s.Type())
-			_, err := m.marshalValue(&Properties{origProp: sprop.Prop[0]}, s.Field(0), nested, builder)
+			_, err := m.marshalValue(&Properties{origProp: sprop.Prop[0]}, s.Field(0), builder)
 			return err
 		case "Any":
 			// Any is a bit more involved.
@@ -230,7 +230,7 @@ func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, build
 		case "Struct", "ListValue":
 			// Let marshalValue handle the `Struct.fields` map or the `ListValue.values` slice.
 			// TODO: pass the correct Properties if needed.
-			_, err := m.marshalValue(&Properties{}, s.Field(0), nested, builder)
+			_, err := m.marshalValue(&Properties{}, s.Field(0), builder)
 			return err
 		case "Timestamp":
 			// "RFC 3339, where generated output will always be Z-normalized
@@ -255,7 +255,7 @@ func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, build
 			// oneof -> *T -> T -> T.F
 			x := kind.Elem().Elem().Field(0)
 			// TODO: pass the correct Properties if needed.
-			_, err := m.marshalValue(&Properties{}, x, nested, builder)
+			_, err := m.marshalValue(&Properties{}, x, builder)
 			return err
 		}
 	}
@@ -512,7 +512,7 @@ func (m *Marshaler) mapBuilder(y, len int, include []string, x map[string]interf
 // marshalField writes field description and value to the Writer.
 func (m *Marshaler) marshalField(prop *Properties, v reflect.Value, nested string, builder *Builder, anonymous bool) error {
 
-	value, err := m.marshalValue(prop, v, nested, builder)
+	value, err := m.marshalValue(prop, v, builder)
 	if err != nil {
 		return err
 	}
@@ -530,7 +530,7 @@ func (m *Marshaler) marshalField(prop *Properties, v reflect.Value, nested strin
 }
 
 // marshalValue writes the value to the Writer.
-func (m *Marshaler) marshalValue(prop *Properties, v reflect.Value, indent string, builder *Builder) (interface{}, error) {
+func (m *Marshaler) marshalValue(prop *Properties, v reflect.Value, builder *Builder) (interface{}, error) {
 	v = reflect.Indirect(v)
 
 	// Handle nil pointer
@@ -544,7 +544,37 @@ func (m *Marshaler) marshalValue(prop *Properties, v reflect.Value, indent strin
 		if prop.Embedded {
 			nested = ""
 		}
-		return nil, m.marshalObject(v.Addr().Interface().(proto.Message), nested, "", builder)
+
+		if prop.Embedded {
+			return nil, m.marshalObject(v.Addr().Interface().(proto.Message), nested, "", builder)
+		}
+
+		newBuilder := &Builder{}
+		newBuilder.Output = make(map[string]interface{})
+
+		err := m.marshalObject(v.Addr().Interface().(proto.Message), nested, "", newBuilder)
+		if err != nil {
+			return nil, err
+		}
+
+		return newBuilder.Output[prop.origProp.OrigName], nil
+	}
+
+	// Handle repeated elements.
+	if v.Kind() == reflect.Slice && v.Type().Elem().Kind() != reflect.Uint8 {
+		//out.write("[")
+		slice := []interface{}{}
+
+		for i := 0; i < v.Len(); i++ {
+			value, err := m.marshalValue(prop, v.Index(i), builder)
+			if err != nil {
+				return nil, err
+			}
+
+			slice = append(slice, value)
+		}
+
+		return slice, nil
 	}
 
 	// Handle enumerations.

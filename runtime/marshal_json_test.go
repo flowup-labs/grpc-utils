@@ -946,11 +946,11 @@ func (x Enum) String() string {
 }
 
 type Msg2 struct {
-	Name            string       `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
-	NotEmbedMsgName *NotEmbedMsg `protobuf:"bytes,2,opt,name=notEmbedMsgName" json:"notEmbedMsgName,omitempty"`
-	//todo
-	//Own             *Msg2        `protobuf:"bytes,3,opt,name=own" json:"own,omitempty"`
-	Enum            Enum         `protobuf:"varint,4,opt,name=enum,proto3,enum=runtime.Enum" json:"enum,omitempty"`
+	Name            string         `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
+	NotEmbedMsgName *NotEmbedMsg   `protobuf:"bytes,2,opt,name=notEmbedMsgName" json:"notEmbedMsgName,omitempty"`
+	Own             *Msg2          `protobuf:"bytes,3,opt,name=own" json:"own,omitempty"`
+	Enum            Enum           `protobuf:"varint,4,opt,name=enum,proto3,enum=runtime.Enum" json:"enum,omitempty"`
+	ThisIsSlice     []*NotEmbedMsg `protobuf:"bytes,5,rep,name=thisIsSlice" json:"thisIsSlice,omitempty"`
 }
 
 func (m *Msg2) Reset()         { *m = Msg2{} }
@@ -974,14 +974,15 @@ func TestJSONCustomNested2Marshal(t *testing.T) {
 	msgInput := Msg2{
 		Name:            "first of name",
 		NotEmbedMsgName: &NotEmbedMsg{Opt1: "var", Enum: Enum_ZERO},
-		//todo
-		//Own:             &Msg2{},
+		Own:             &Msg2{},
 		Enum:            Enum_ONE,
+		ThisIsSlice: []*NotEmbedMsg{
+			&NotEmbedMsg{Opt1: "slicevar0", Enum: Enum_ONE},
+			&NotEmbedMsg{Opt1: "slicevar1", Enum: Enum_ZERO},
+		},
 	}
 
-	//data := []byte(`{"enum":"ONE","name":"first of name","notEmbedMsgName":{"enum":"ZERO","opt1":"var"},"own":{"enum":"NONE",name":"","notEmbedMsgName":nill,"own":nill}}`)
-
-	data := []byte(`{"enum":"ONE","name":"first of name","notEmbedMsgName":{"enum":"ZERO","opt1":"var"}}`)
+	data := []byte(`{"enum":"ONE","name":"first of name","notEmbedMsgName":{"enum":"ZERO","opt1":"var"},"own":{"enum":"ZERO","name":"","thisIsSlice":[]},"thisIsSlice":[{"enum":"ONE","opt1":"slicevar0"},{"enum":"ZERO","opt1":"slicevar1"}]}`)
 
 	buf, err := m.Marshal(&msgInput)
 	if err != nil {
