@@ -61,6 +61,7 @@ import (
 type Properties struct {
 	origProp *proto.Properties
 	Embedded bool
+	StdTime  bool
 }
 
 // Marshaler is a configurable object for converting between
@@ -137,7 +138,7 @@ func (m *Marshaler) Marshal(out io.Writer, pb proto.Message) error {
 	if err := m.marshalObject(pb, "", "", builder); err != nil {
 		return err
 	}
-	
+
 	b, err := json.Marshal(builder.Output)
 	if err != nil {
 		return err
@@ -195,7 +196,7 @@ func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, build
 				return err
 			}
 		}
-		//out.write(string(b))
+		// out.write(string(b))
 		return nil
 	}
 
@@ -223,9 +224,9 @@ func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, build
 			x := fmt.Sprintf("%.9f", d.Seconds())
 			x = strings.TrimSuffix(x, "000")
 			x = strings.TrimSuffix(x, "000")
-			//out.write(`"`)
-			//out.write(x)
-			//out.write(`s"`)
+			// out.write(`"`)
+			// out.write(x)
+			// out.write(`s"`)
 			return nil
 		case "Struct", "ListValue":
 			// Let marshalValue handle the `Struct.fields` map or the `ListValue.values` slice.
@@ -241,9 +242,9 @@ func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, build
 			x := t.Format("2006-01-02T15:04:05.000000000")
 			x = strings.TrimSuffix(x, "000")
 			x = strings.TrimSuffix(x, "000")
-			//out.write(`"`)
-			//out.write(x)
-			//out.write(`Z"`)
+			// out.write(`"`)
+			// out.write(x)
+			// out.write(`Z"`)
 			return nil
 		case "Value":
 			// Value has a single oneof.
@@ -260,9 +261,9 @@ func (m *Marshaler) marshalObject(v proto.Message, nested, typeURL string, build
 		}
 	}
 
-	//out.write("{")
+	// out.write("{")
 	if m.Indent != "" {
-		//out.write("\n")
+		// out.write("\n")
 	}
 
 	firstField := true
@@ -351,7 +352,7 @@ fieldLoop:
 		}
 
 		if !firstField {
-			//m.writeSep(out)
+			// m.writeSep(out)
 		}
 
 		if err := m.marshalField(prop, value, nested, builder, valueField.Anonymous); err != nil {
@@ -387,7 +388,7 @@ fieldLoop:
 			prop.origProp.Parse(desc.Tag)
 			prop.origProp.JSONName = fmt.Sprintf("[%s]", desc.Name)
 			if !firstField {
-				//m.writeSep(out)
+				// m.writeSep(out)
 			}
 			if err := m.marshalField(&prop, value, nested, builder, false); err != nil {
 				return err
@@ -398,19 +399,19 @@ fieldLoop:
 	}
 
 	if m.Indent != "" {
-		//out.write("\n")
-		//out.write(indent)
+		// out.write("\n")
+		// out.write(indent)
 	}
-	//out.write("}")
+	// out.write("}")
 
 	return nil
 }
 
 func (m *Marshaler) writeSep(out *errWriter) {
 	if m.Indent != "" {
-		//out.write(",\n")
+		// out.write(",\n")
 	} else {
-		//out.write(",")
+		// out.write(",")
 	}
 }
 
@@ -439,29 +440,29 @@ func (m *Marshaler) marshalAny(any proto.Message, indent string, builder *Builde
 	}
 
 	if _, ok := msg.(wkt); ok {
-		//out.write("{")
+		// out.write("{")
 		if m.Indent != "" {
-			//out.write("\n")
+			// out.write("\n")
 		}
 		if err := m.marshalTypeURL(indent, turl); err != nil {
 			return err
 		}
-		//m.writeSep(out)
+		// m.writeSep(out)
 		if m.Indent != "" {
-			//out.write(indent)
-			//out.write(m.Indent)
-			//out.write(`"value": `)
+			// out.write(indent)
+			// out.write(m.Indent)
+			// out.write(`"value": `)
 		} else {
-			//out.write(`"value":`)
+			// out.write(`"value":`)
 		}
 		if err := m.marshalObject(msg, indent+m.Indent, "", builder); err != nil {
 			return err
 		}
 		if m.Indent != "" {
-			//out.write("\n")
-			//out.write(indent)
+			// out.write("\n")
+			// out.write(indent)
 		}
-		//out.write("}")
+		// out.write("}")
 		return nil
 	}
 	return m.marshalObject(msg, indent, turl, builder)
@@ -469,18 +470,18 @@ func (m *Marshaler) marshalAny(any proto.Message, indent string, builder *Builde
 
 func (m *Marshaler) marshalTypeURL(indent, typeURL string) error {
 	if m.Indent != "" {
-		//out.write(indent)
-		//out.write(m.Indent)
+		// out.write(indent)
+		// out.write(m.Indent)
 	}
-	//out.write(`"@type":`)
+	// out.write(`"@type":`)
 	if m.Indent != "" {
-		//out.write(" ")
+		// out.write(" ")
 	}
 	_, err := json.Marshal(typeURL)
 	if err != nil {
 		return err
 	}
-	//out.write(string(b))
+	// out.write(string(b))
 	return nil
 }
 
@@ -539,7 +540,7 @@ func (m *Marshaler) marshalValue(prop *Properties, v reflect.Value, builder *Bui
 	}
 
 	// Handle nested messages.
-	if v.Kind() == reflect.Struct {
+	if v.Kind() == reflect.Struct && !prop.StdTime{
 		nested := prop.origProp.JSONName
 		if prop.Embedded {
 			nested = ""
@@ -562,7 +563,7 @@ func (m *Marshaler) marshalValue(prop *Properties, v reflect.Value, builder *Bui
 
 	// Handle repeated elements.
 	if v.Kind() == reflect.Slice && v.Type().Elem().Kind() != reflect.Uint8 {
-		//out.write("[")
+		// out.write("[")
 		slice := []interface{}{}
 
 		for i := 0; i < v.Len(); i++ {
@@ -1015,7 +1016,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 				// These could still be nil if the protobuf metadata is broken somehow.
 				// TODO: This won't work because the fields are unexported.
 				// We should probably just reparse them.
-				//keyprop, valprop = prop.mkeyprop, prop.mvalprop
+				// keyprop, valprop = prop.mkeyprop, prop.mvalprop
 			}
 			for ks, raw := range mp {
 				// Unmarshal map key. The core json library already decoded the key into a
@@ -1087,6 +1088,10 @@ func jsonProperties(f reflect.StructField, origName bool) *Properties {
 
 	if strings.Contains(f.Tag.Get("protobuf"), "embedded=") {
 		prop.Embedded = true
+	}
+
+	if strings.Contains(f.Tag.Get("protobuf"), "stdtime") {
+		prop.StdTime = true
 	}
 
 	if origName || prop.origProp.JSONName == "" {

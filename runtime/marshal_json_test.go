@@ -14,6 +14,7 @@ import (
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/grpc-ecosystem/grpc-gateway/examples/examplepb"
 	"github.com/golang/protobuf/ptypes/duration"
+	"time"
 )
 
 func TestJSONBuiltinMarshal(t *testing.T) {
@@ -983,6 +984,53 @@ func TestJSONCustomNested2Marshal(t *testing.T) {
 	}
 
 	data := []byte(`{"enum":"ONE","name":"first of name","notEmbedMsgName":{"enum":"ZERO","opt1":"var"},"own":{"enum":"ZERO","name":"","thisIsSlice":[]},"thisIsSlice":[{"enum":"ONE","opt1":"slicevar0"},{"enum":"ZERO","opt1":"slicevar1"}]}`)
+
+	buf, err := m.Marshal(&msgInput)
+	if err != nil {
+		t.Errorf("m.Marshal(%v) failed with %v; want success", &msgInput, err)
+	}
+
+	if !reflect.DeepEqual(buf, data) {
+		t.Errorf("got = %v; want %v", string(buf), string(data))
+	}
+}
+
+type Model struct {
+	ID        uint64     `protobuf:"varint,1,opt,name=ID,proto3" json:"ID,omitempty"`
+	CreatedAt time.Time  `protobuf:"bytes,2,opt,name=created_at,json=createdAt,stdtime" json:"created_at"`
+	UpdatedAt time.Time  `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,stdtime" json:"updated_at"`
+	DeletedAt *time.Time `protobuf:"bytes,4,opt,name=deleted_at,json=deletedAt,stdtime" json:"deleted_at,omitempty"`
+}
+
+func (m *Model) Reset()         { *m = Model{} }
+func (m *Model) String() string { return proto.CompactTextString(m) }
+func (*Model) ProtoMessage()    {}
+
+type T struct {
+	Model       `protobuf:"bytes,1,opt,name=model,embedded=model" json:""`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name"`
+}
+
+func (m *T) Reset()         { *m = T{} }
+func (m *T) String() string { return proto.CompactTextString(m) }
+func (*T) ProtoMessage()    {}
+
+func TestJSONCustomNestedModelMarshal(t *testing.T) {
+	var m JSONCustom
+	m.EmitDefaults = true
+	m.EnumsAsInts = false
+
+	msgInput := T{
+		Name: "first of name",
+		Model: Model{
+			ID:        1,
+			CreatedAt: time.Date(1, 0, 0, 0, 0, 0, 0, time.Local),
+			UpdatedAt: time.Date(2, 0, 0, 0, 0, 0, 0, time.Local),
+			DeletedAt: nil,
+		},
+	}
+
+	data := []byte(`{"ID":1,"created_at":"0000-11-30T00:00:00+00:57","name":"first of name","updated_at":"0001-11-30T00:00:00+00:57"}`)
 
 	buf, err := m.Marshal(&msgInput)
 	if err != nil {
