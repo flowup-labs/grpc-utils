@@ -926,31 +926,31 @@ func TestJSONCustomNestedUnmarshal(t *testing.T) {
 	}
 }
 
-type Enum int32
+type EnumT int32
 
 const (
-	Enum_ZERO Enum = 0
-	Enum_ONE  Enum = 1
+	EnumT_ZERO EnumT = 0
+	EnumT_ONE  EnumT = 1
 )
 
-var Enum_name = map[int32]string{
+var EnumT_name = map[int32]string{
 	0: "ZERO",
 	1: "ONE",
 }
-var Enum_value = map[string]int32{
+var EnumT_value = map[string]int32{
 	"ZERO": 0,
 	"ONE":  1,
 }
 
-func (x Enum) String() string {
-	return proto.EnumName(Enum_name, int32(x))
+func (x EnumT) String() string {
+	return proto.EnumName(EnumT_name, int32(x))
 }
 
 type Msg2 struct {
 	Name            string         `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
 	NotEmbedMsgName *NotEmbedMsg   `protobuf:"bytes,2,opt,name=notEmbedMsgName" json:"notEmbedMsgName,omitempty"`
 	Own             *Msg2          `protobuf:"bytes,3,opt,name=own" json:"own,omitempty"`
-	Enum            Enum           `protobuf:"varint,4,opt,name=enum,proto3,enum=runtime.Enum" json:"enum,omitempty"`
+	EnumT           EnumT          `protobuf:"varint,4,opt,name=enumT,proto3,enum=runtime.EnumT" json:"enumT,omitempty"`
 	ThisIsSlice     []*NotEmbedMsg `protobuf:"bytes,5,rep,name=thisIsSlice" json:"thisIsSlice,omitempty"`
 }
 
@@ -960,32 +960,49 @@ func (*Msg2) ProtoMessage()    {}
 
 type NotEmbedMsg struct {
 	Opt1 string `protobuf:"bytes,1,opt,name=opt1,proto3" json:"opt1,omitempty"`
-	Enum Enum   `protobuf:"varint,2,opt,name=enum,proto3,enum=runtime.Enum" json:"enum,omitempty"`
+	Enum EnumT  `protobuf:"varint,2,opt,name=enum,proto3,enum=runtime.EnumT" json:"enum,omitempty"`
 }
 
 func (m *NotEmbedMsg) Reset()         { *m = NotEmbedMsg{} }
 func (m *NotEmbedMsg) String() string { return proto.CompactTextString(m) }
 func (*NotEmbedMsg) ProtoMessage()    {}
 
-func TestJSONCustomNested2Marshal(t *testing.T) {
+func TestJSONCustomNested2MarshalAndUnmarshal(t *testing.T) {
+	proto.RegisterEnum("runtime.EnumT", EnumT_name, EnumT_value)
+
 	var m JSONCustom
 	m.EmitDefaults = true
 	m.EnumsAsInts = false
 
 	msgInput := Msg2{
 		Name:            "first of name",
-		NotEmbedMsgName: &NotEmbedMsg{Opt1: "var", Enum: Enum_ZERO},
+		NotEmbedMsgName: &NotEmbedMsg{Opt1: "var", Enum: EnumT_ZERO},
 		Own:             &Msg2{},
-		Enum:            Enum_ONE,
+		EnumT:           EnumT_ONE,
 		ThisIsSlice: []*NotEmbedMsg{
-			&NotEmbedMsg{Opt1: "slicevar0", Enum: Enum_ONE},
-			&NotEmbedMsg{Opt1: "slicevar1", Enum: Enum_ZERO},
+			&NotEmbedMsg{Opt1: "slicevar0", Enum: EnumT_ONE},
+			&NotEmbedMsg{Opt1: "slicevar1", Enum: EnumT_ZERO},
 		},
 	}
 
-	data := []byte(`{"enum":"ONE","name":"first of name","notEmbedMsgName":{"enum":"ZERO","opt1":"var"},"own":{"enum":"ZERO","name":"","thisIsSlice":[]},"thisIsSlice":[{"enum":"ONE","opt1":"slicevar0"},{"enum":"ZERO","opt1":"slicevar1"}]}`)
+	data := []byte(`{"enumT":"ONE","name":"first of name","notEmbedMsgName":{"enum":"ZERO","opt1":"var"},"own":{"enumT":"ZERO","name":"","thisIsSlice":[]},"thisIsSlice":[{"enum":"ONE","opt1":"slicevar0"},{"enum":"ZERO","opt1":"slicevar1"}]}`)
 
 	buf, err := m.Marshal(&msgInput)
+	if err != nil {
+		t.Errorf("m.Marshal(%v) failed with %v; want success", &msgInput, err)
+	}
+
+	if !reflect.DeepEqual(buf, data) {
+		t.Errorf("got = %v; want %v", string(buf), string(data))
+	}
+
+	msgOutput := Msg2{}
+
+	if err := m.Unmarshal(data, &msgOutput); err != nil {
+		t.Errorf("json.Unmarshal(%q, &data) failed with %v; want success", data, err)
+	}
+
+	buf, err = m.Marshal(&msgOutput)
 	if err != nil {
 		t.Errorf("m.Marshal(%v) failed with %v; want success", &msgInput, err)
 	}

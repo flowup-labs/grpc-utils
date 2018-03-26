@@ -540,7 +540,7 @@ func (m *Marshaler) marshalValue(prop *Properties, v reflect.Value, builder *Bui
 	}
 
 	// Handle nested messages.
-	if v.Kind() == reflect.Struct && !prop.StdTime{
+	if v.Kind() == reflect.Struct && !prop.StdTime {
 		nested := prop.origProp.JSONName
 		if prop.Embedded {
 			nested = ""
@@ -819,7 +819,7 @@ func (u *Unmarshaler) unmarshalValue(target reflect.Value, inputValue json.RawMe
 	// and may appear as strings.
 	// The case of an enum appearing as a number is handled
 	// at the bottom of this function.
-	if inputValue[0] == '"' && prop != nil && prop.origProp.Enum != "" {
+	if inputValue[0] == '"' && prop != nil && prop.origProp != nil && prop.origProp.Enum != "" {
 
 		vmap := proto.EnumValueMap(prop.origProp.Enum)
 		// Don't need to do unquoting; valid enum names
