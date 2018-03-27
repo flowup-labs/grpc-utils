@@ -1072,3 +1072,61 @@ func TestJSONCustomNestedModelMarshal(t *testing.T) {
 		t.Errorf("got = %v; want %v", string(buf), string(data))
 	}
 }
+
+type AnyType struct {
+	Float64Name float64 `protobuf:"fixed64,1,opt,name=Float64Name,proto3" json:"Float64Name,omitempty"`
+	Float32Name float32 `protobuf:"fixed32,2,opt,name=Float32Name,proto3" json:"Float32Name,omitempty"`
+	Int32Name   int32   `protobuf:"varint,3,opt,name=Int32Name,proto3" json:"Int32Name,omitempty"`
+	Int64Name   int64   `protobuf:"varint,4,opt,name=Int64Name,proto3" json:"Int64Name,omitempty"`
+	Uint32Name  uint32  `protobuf:"varint,5,opt,name=Uint32Name,proto3" json:"Uint32Name,omitempty"`
+	Uint64Name  uint64  `protobuf:"varint,6,opt,name=Uint64Name,proto3" json:"Uint64Name,omitempty"`
+	BoolName    bool    `protobuf:"varint,7,opt,name=BoolName,proto3" json:"BoolName,omitempty"`
+	StringName  string  `protobuf:"bytes,8,opt,name=StringName,proto3" json:"StringName,omitempty"`
+	ByteNames   []byte  `protobuf:"bytes,9,opt,name=ByteNames,proto3" json:"ByteNames,omitempty"`
+}
+
+func (m *AnyType) Reset()         { *m = AnyType{} }
+func (m *AnyType) String() string { return proto.CompactTextString(m) }
+func (*AnyType) ProtoMessage()    {}
+
+func TestJSONCustomTypesMarshal(t *testing.T) {
+	var m JSONCustom
+
+	msgInput := AnyType{
+		Float64Name: 123,
+		Float32Name: 124,
+		Int32Name:   125,
+		Int64Name:   126,
+		Uint32Name:  127,
+		Uint64Name:  128,
+		BoolName:    true,
+		StringName:  "string",
+		ByteNames:   []byte(`byte`),
+	}
+
+	data := []byte(`{"BoolName":true,"ByteNames":"Ynl0ZQ==","Float32Name":124,"Float64Name":123,"Int32Name":125,"Int64Name":126,"StringName":"string","Uint32Name":127,"Uint64Name":128}`)
+
+	buf, err := m.Marshal(&msgInput)
+	if err != nil {
+		t.Errorf("m.Marshal(%v) failed with %v; want success", &msgInput, err)
+	}
+
+	if !reflect.DeepEqual(buf, data) {
+		t.Errorf("got = %v; want %v", string(buf), string(data))
+	}
+
+	msgOutput := AnyType{}
+
+	if err := m.Unmarshal(data, &msgOutput); err != nil {
+		t.Errorf("json.Unmarshal(%q, &data) failed with %v; want success", data, err)
+	}
+
+	buf, err = m.Marshal(&msgOutput)
+	if err != nil {
+		t.Errorf("m.Marshal(%v) failed with %v; want success", &msgInput, err)
+	}
+
+	if !reflect.DeepEqual(buf, data) {
+		t.Errorf("got = %v; want %v", string(buf), string(data))
+	}
+}
