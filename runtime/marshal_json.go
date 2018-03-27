@@ -6,7 +6,6 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/golang/protobuf/proto"
 	"bytes"
-	"github.com/golang/protobuf/jsonpb"
 )
 
 // Marshaler is a configurable object for converting between
@@ -62,12 +61,14 @@ func (j *JSONCustom) Marshal(v interface{}) ([]byte, error) {
 
 // Unmarshal unmarshals JSON data into "v".
 func (j *JSONCustom) Unmarshal(data []byte, v interface{}) error {
-	d := json.NewDecoder(bytes.NewReader(data))
+	d := j.NewDecoder(bytes.NewReader(data))
+
 	p, ok := v.(proto.Message)
 	if !ok {
 		return json.Unmarshal(data, v)
 	}
-	unmarshaler := &jsonpb.Unmarshaler{AllowUnknownFields: true}
+
+	unmarshaler := &Unmarshaler{AllowUnknownFields: true}
 	return unmarshaler.UnmarshalNext(d, p)
 }
 
