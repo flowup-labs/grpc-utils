@@ -50,8 +50,7 @@ func TestJSONBuiltinMarshalField(t *testing.T) {
 	}
 }
 
-// todo need be fix
-/*func TestJSONBuiltinMarshalFieldKnownErrors(t *testing.T) {
+func TestJSONBuiltinMarshalFieldKnownErrors(t *testing.T) {
 	var m JSONCustom
 	for _, fixt := range builtinKnownErrors {
 		buf, err := m.Marshal(fixt.data)
@@ -62,7 +61,7 @@ func TestJSONBuiltinMarshalField(t *testing.T) {
 			t.Errorf("surprisingly got = %q; as want %q; data = %#v", got, want, fixt.data)
 		}
 	}
-}*/
+}
 
 func TestJSONBuiltinsnmarshal(t *testing.T) {
 	var (
@@ -1024,7 +1023,7 @@ func (m *Model) String() string { return proto.CompactTextString(m) }
 func (*Model) ProtoMessage()    {}
 
 type T struct {
-	Model       `protobuf:"bytes,1,opt,name=model,embedded=model" json:""`
+	Model       `protobuf:"bytes,1,opt,name=model,embedded=model" json:"model,omitempty"`
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name"`
 }
 
@@ -1040,16 +1039,31 @@ func TestJSONCustomNestedModelMarshal(t *testing.T) {
 	msgInput := T{
 		Name: "first of name",
 		Model: Model{
-			ID:        1,
-			CreatedAt: time.Date(1, 0, 0, 0, 0, 0, 0, time.Local),
-			UpdatedAt: time.Date(2, 0, 0, 0, 0, 0, 0, time.Local),
+			ID:        123,
+			CreatedAt: time.Date(1992, 1, 1, 0, 0, 0, 0, time.Local),
+			UpdatedAt: time.Date(2018, 1, 1, 0, 0, 0, 0, time.Local),
 			DeletedAt: nil,
 		},
 	}
 
-	data := []byte(`{"ID":1,"created_at":"0000-11-30T00:00:00+00:57","name":"first of name","updated_at":"0001-11-30T00:00:00+00:57"}`)
+	data := []byte(`{"ID":123,"created_at":"1992-01-01T00:00:00+01:00","name":"first of name","updated_at":"2018-01-01T00:00:00+01:00"}`)
 
 	buf, err := m.Marshal(&msgInput)
+	if err != nil {
+		t.Errorf("m.Marshal(%v) failed with %v; want success", &msgInput, err)
+	}
+
+	if !reflect.DeepEqual(buf, data) {
+		t.Errorf("got = %v; want %v", string(buf), string(data))
+	}
+
+	msgOutput := T{}
+
+	if err := m.Unmarshal(data, &msgOutput); err != nil {
+		t.Errorf("json.Unmarshal(%q, &data) failed with %v; want success", data, err)
+	}
+
+	buf, err = m.Marshal(&msgOutput)
 	if err != nil {
 		t.Errorf("m.Marshal(%v) failed with %v; want success", &msgInput, err)
 	}
